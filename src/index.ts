@@ -1,321 +1,425 @@
 import {
-	createInitializeMintInstruction,
-	getMintLen,
-	getMint,
-	ExtensionType,
-	TOKEN_2022_PROGRAM_ID,
-	getAccount,
-	createInitializeImmutableOwnerInstruction,
-	createInitializeDefaultAccountStateInstruction,
-	AccountState,
-	createEnableRequiredMemoTransfersInstruction,
-	createEnableCpiGuardInstruction,
-	createInitializeMintCloseAuthorityInstruction,
-	createMint,
-	getAccountLen,
-	createInitializeAccountInstruction,
-	updateDefaultAccountState,
-	thawAccount,
-	mintTo,
-	createAccount,
-	createAssociatedTokenAccount,
-	setAuthority,
-	AuthorityType,
-	createTransferInstruction
-  } from '@solana/spl-token';
-  import {
-	clusterApiUrl,
-	sendAndConfirmTransaction,
-	Connection,
-	Keypair,
-	SystemProgram,
-	Transaction,
-	LAMPORTS_PER_SOL,
-	PublicKey,
-	TransactionInstruction,
-  } from '@solana/web3.js';
-  import bs58 from 'bs58';
-import { initializeKeypair } from './keypair-helpers';
-  require('dotenv').config();
-  
-  async function createToken22MintWithDefaultState(connection: Connection, payer: Keypair, mintKeypair: Keypair, decimals: number = 2): Promise<string> {
-	const extensions = [ExtensionType.DefaultAccountState];
-	const mintAccount = mintKeypair.publicKey;
-  
-	const mintAuthority = payer.publicKey;
-	const freezeAuthority = payer.publicKey;
-  
-  
-	const mintLen = getMintLen(extensions);
-	const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
-  
-	const defaultState = AccountState.Frozen;
-  
-	const createAccountInstruction = SystemProgram.createAccount({
-	  fromPubkey: payer.publicKey, // Account that will transfer lamports to created account
-	  newAccountPubkey: mintAccount, // Address of the account to create
-	  space: mintLen, // Amount of bytes to allocate to the created account
-	  lamports, // Amount of lamports transferred to created account
-	  programId: TOKEN_2022_PROGRAM_ID, // Program assigned as owner of created account
-	});
-  
-	const initializeMintInstruction = createInitializeMintInstruction(
-	  mintAccount,
-	  decimals,
-	  mintAuthority,
-	  freezeAuthority,
-	  TOKEN_2022_PROGRAM_ID
-	);
-  
-	// Instruction to initialize the DefaultAccountState Extension
-	const initializeDefaultAccountStateInstruction =
-	  createInitializeDefaultAccountStateInstruction(
-		mintAccount,
-		defaultState,
+  TOKEN_2022_PROGRAM_ID,
+  getAccount,
+  AccountState,
+  thawAccount,
+  mintTo,
+  setAuthority,
+  AuthorityType,
+  createTransferInstruction,
+} from "@solana/spl-token";
+import {
+  sendAndConfirmTransaction,
+  Connection,
+  Keypair,
+  Transaction,
+  PublicKey,
+  TransactionInstruction,
+  SystemProgram,
+} from "@solana/web3.js";
+import { initializeKeypair } from "./keypair-helpers";
+import { createToken22MintWithDefaultState } from "./mint-helpers";
+import { createTokenAccountWithExtensions } from "./token-helpers";
+require("dotenv").config();
+
+// -------------- TESTS -------------- //
+
+interface MintWithoutThawingInputs {
+  connection: Connection;
+  payer: Keypair;
+  tokenAccount: PublicKey;
+  mint: PublicKey;
+  amount: number;
+}
+
+async function testMintWithoutThawing(inputs:
+	MintWithoutThawingInputs) {
+	const { connection, payer, tokenAccount, mint, amount } = inputs;
+  try {
+    // Attempt to mint without thawing
+    await mintTo(
+      connection,
+      payer,
+      mint,
+      tokenAccount,
+      payer.publicKey,
+      amount,
+      undefined,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    console.error("Should not have minted...");
+  } catch (error) {
+    console.log(
+      "✅ - We expected this to fail because the account is still frozen."
+    );
+  }
+}
+
+
+interface ThawAndMintInputs {
+  connection: Connection;
+  payer: Keypair;
+  tokenAccount: PublicKey;
+  mint: PublicKey;
+  amount: number;
+}
+async function testThawAndMint(inputs: ThawAndMintInputs) {
+	  const { connection, payer, tokenAccount, mint, amount } = inputs;
+	try {
+	  // Unfreeze frozen token
+	  await thawAccount(
+		connection,
+		payer,
+		tokenAccount,
+		mint,
+		payer,
+		undefined,
+		undefined,
 		TOKEN_2022_PROGRAM_ID
 	  );
   
-	const transaction = new Transaction().add(
-	  createAccountInstruction,
-	  initializeDefaultAccountStateInstruction,
-	  initializeMintInstruction
-	);
-  
-	return await sendAndConfirmTransaction(
-	  connection,
-	  transaction,
-	  [payer, mintKeypair],
-	);
+	  await mintTo(
+		  connection,
+		  payer,
+		  mint,
+		  tokenAccount,
+		  payer.publicKey,
+		  amount,
+		  undefined,
+		  undefined,
+		  TOKEN_2022_PROGRAM_ID
+		);
+	  
+	  const account = await getAccount(connection, tokenAccount, undefined, TOKEN_2022_PROGRAM_ID);
+
+	  console.log(
+		`✅ - The new account balance is ${Number(account.amount)} after thawing and minting.`
+	  );
+	  
+	} catch (error) {
+	  console.error("Error thawing and or minting token: ", error);
+	}
   }
-  
-  async function transferOwner(connection: Connection, payer: Keypair, createTokenAccountSignature: Keypair) {
+
+
+  interface TransferOwnerInputs {
+	connection: Connection;
+	tokenAccount: PublicKey;
+	payer: Keypair;
+	newAuthority: PublicKey;
+  }
+  async function testTryingToTransferOwner(inputs: TransferOwnerInputs) {
+	const { connection, payer, tokenAccount, newAuthority } = inputs;
 	try {
 	  // Attempt to change owner
 	  await setAuthority(
 		connection,
 		payer,
-		createTokenAccountSignature.publicKey,
+		tokenAccount,
 		payer.publicKey,
 		AuthorityType.AccountOwner,
-		new Keypair().publicKey,
+		newAuthority,
 		undefined,
 		undefined,
-		TOKEN_2022_PROGRAM_ID,
+		TOKEN_2022_PROGRAM_ID
 	  );
+
+    console.error("You should not be able to change the owner of the account.");
+
 	} catch (error) {
-	  console.error('\x1b[31mFailed: Enforcing immutable owner. Owner cannot be changed for this token.\x1b[0m \n');
+		console.log(
+			`✅ - We expected this to fail because the account is immutable, and cannot change owner.`
+		  );
 	}
   }
-  
-  async function createTokenAccountWithExtentions(connection: Connection, mint: PublicKey, payer: Keypair, tokenAccountKeypair: Keypair): Promise<string> {
-	const tokenAccount = tokenAccountKeypair.publicKey;
-  
-	const extensions = [
-	  // ExtensionType.DefaultAccountState, < -- On the Mint
-	  ExtensionType.CpiGuard,
-	  ExtensionType.ImmutableOwner,
-	  ExtensionType.MemoTransfer
-	];
-  
-	const tokenAccountLen = getAccountLen(extensions);
-	const lamports = await connection.getMinimumBalanceForRentExemption(tokenAccountLen);
-  
-	const createTokenAccountInstruction = SystemProgram.createAccount({
-	  fromPubkey: payer.publicKey,
-	  newAccountPubkey: tokenAccount,
-	  space: tokenAccountLen,
-	  lamports,
-	  programId: TOKEN_2022_PROGRAM_ID,
-	});
-  
-	const initializeImmutableOwnerInstruction =
-	  createInitializeImmutableOwnerInstruction(
-		tokenAccount,
-		TOKEN_2022_PROGRAM_ID,
-	  );
-  
-	const initializeRequiredMemoTransfersInstruction =
-	  createEnableRequiredMemoTransfersInstruction(
-		tokenAccount,
-		payer.publicKey,
-		undefined,
-		TOKEN_2022_PROGRAM_ID,
-	  );
-  
-	const initializeCpiGuard =
-	  createEnableCpiGuardInstruction(tokenAccount, payer.publicKey, [], TOKEN_2022_PROGRAM_ID)
-  
-	const initializeAccountInstruction = createInitializeAccountInstruction(
-	  tokenAccount,
-	  mint,
-	  payer.publicKey,
-	  TOKEN_2022_PROGRAM_ID,
-	);
-  
-	const transaction = new Transaction().add(
-	  createTokenAccountInstruction,
-  
-	  initializeImmutableOwnerInstruction, // THIS HAS TO GO FIRST
-  
-	  initializeAccountInstruction,
-  
-	  // initializeDefaultAccountStateInstruction, < THIS GOES IN MINT
-  
-	  initializeRequiredMemoTransfersInstruction,
-	  initializeCpiGuard,
-	);
-  
-	// Send transaction
-	return await sendAndConfirmTransaction(
-	  connection,
-	  transaction,
-	  [payer, tokenAccountKeypair],
-	);
-  }
-  
-  function mintToTokenAccount(connection: Connection, payer: Keypair, mint: PublicKey, tokenAccount: PublicKey): Promise<string> {
-  
-	return mintTo(
-	  connection,
-	  payer,
-	  mint,
-	  tokenAccount,
-	  payer.publicKey,
-	  200,
-	  undefined,
-	  undefined,
-	  TOKEN_2022_PROGRAM_ID,
-	);
-  }
-  
-  async function unfreezeAndMint(connection: Connection, payer: Keypair, tokenAccount: PublicKey, mint: PublicKey) {
+
+
+interface TransferWithoutMemoInputs {
+	connection: Connection;
+	fromTokenAccount: PublicKey;
+	destinationTokenAccount: PublicKey;
+	payer: Keypair;
+	amount: number;	
+}
+async function testTryingToTransferWithoutMemo(inputs: TransferWithoutMemoInputs) {
+	const { fromTokenAccount, destinationTokenAccount, payer, connection, amount } = inputs;
 	try {
-	  // Unfreeze frozen token
-	  const unfreezeAccount = await thawAccount(
-		connection,
-		payer,
-		tokenAccount,
-		mint,
-		payer.publicKey,
-		undefined,
-		undefined,
-		TOKEN_2022_PROGRAM_ID,
-	  );
-  
-	  console.log('\x1b[32mSuccess: Frozen token thawed.\x1b[0m\n');
-	  try {
-		// Attempt to mint unfrozen token
-		const mintUnfrozenTokenSignature = await mintToTokenAccount(
-		  connection,
-		  payer,
-		  mint,
-		  tokenAccount
-		)
-		console.log(`\x1b[32mSuccess: Token Minted ${mintUnfrozenTokenSignature} \x1b[0m\n`);
+		const transaction = new Transaction().add(
+			createTransferInstruction(
+			fromTokenAccount,
+			destinationTokenAccount,
+			payer.publicKey,
+			amount,
+			undefined,
+			TOKEN_2022_PROGRAM_ID
+		  )
+		);
+	
+		await sendAndConfirmTransaction(connection, transaction, [payer]);
+
+		console.error("You should not be able to transfer without a memo.");
+
 	  } catch (error) {
-		console.log("Error minting: ", error)
+		console.log(
+			`✅ - We expected this to fail because you need to send a memo with the transfer.`
+		  );
 	  }
-	} catch (error) {
-	  console.error("Error thawing token: ", error)
-	}
-  }
-  
-  async function transferWithoutMemo(mint: PublicKey, tokenAccount: PublicKey, payer: Keypair, connection: Connection) {
-	const transferInstruction = createTransferInstruction(
-	  mint,
-	  tokenAccount,
-	  payer.publicKey,
-	  100,
-	  undefined,
-	  TOKEN_2022_PROGRAM_ID,
-	);
-  
-	const message = "Hello, Solana";
-	// Instruction to add memo
-	const memoInstruction = new TransactionInstruction({
-	  keys: [{ pubkey: payer.publicKey, isSigner: true, isWritable: true }],
-	  data: Buffer.from(message, "utf-8"),
-	  programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
-	});
-  
+}
+
+interface TransferWithMemoWithFrozenAccountInputs {
+	connection: Connection;
+	fromTokenAccount: PublicKey;
+	destinationTokenAccount: PublicKey;
+	payer: Keypair;
+	amount: number;
+	message: string;
+}
+async function testTransferringWithMemoWithFrozenAccount(inputs: TransferWithMemoWithFrozenAccountInputs) {
+	const { fromTokenAccount, destinationTokenAccount, payer, connection, amount, message } = inputs;
 	try {
-	  let transaction = new Transaction().add(transferInstruction);
-  
-	  await sendAndConfirmTransaction(
-		connection,
-		transaction,
-		[payer],
-	  );
-	} catch (error) {
-	  console.error('\x1b[31mFailed: Enforcing Required Memo. Cannot transfer tokens without a Memo.\x1b[0m\n');
-	}
+		const transaction = new Transaction().add(
+			new TransactionInstruction({
+				keys: [{ pubkey: payer.publicKey, isSigner: true, isWritable: true }],
+				data: Buffer.from(message, "utf-8"),
+				programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+			  }),
+			  createTransferInstruction(
+				fromTokenAccount,
+				destinationTokenAccount,
+				payer.publicKey,
+				amount,
+				undefined,
+				TOKEN_2022_PROGRAM_ID
+			  )
+		);
+		await sendAndConfirmTransaction(connection, transaction, [payer]);
+
+		console.error("This should not work until we thaw the account.");
+
+	  } catch (error) {
+		console.log(
+			`✅ - We expected this to fail because the account is still frozen.`
+		  );
+	  }
+
+}
+
+interface TransferWithMemoWithThawedAccountInputs {
+	connection: Connection;
+	fromTokenAccount: PublicKey;
+	destinationTokenAccount: PublicKey;
+	mint: PublicKey;
+	payer: Keypair;
+	owner: Keypair;
+	amount: number;
+	message: string;
+}
+async function testTransferringWithMemoWithThawedAccount(inputs: TransferWithMemoWithThawedAccountInputs) {
+	const { fromTokenAccount, destinationTokenAccount, mint, payer, owner, connection, amount, message } = inputs;
 	try {
-	  let transaction = new Transaction().add(memoInstruction);
-  
-	  await sendAndConfirmTransaction(
-		connection,
-		transaction,
-		[payer],
-	  );
-	  console.log(`\x1b[32mSuccess: Enforcing Required Memo. Successful transaction. \x1b[0m\n`);
-  
-	} catch (error) {
-	  console.log("Error :", error);
-	}
-  }
-  
-  async function main() {
-  
-	/// SECITON 0 Setup
-	const connection = new Connection('http://127.0.0.1:8899', 'confirmed');
-	// const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
-	const payer = await initializeKeypair(connection);
-  
-	const mintKeypair = Keypair.generate();
-	const mint = mintKeypair.publicKey;
-	const mintDecimals = 9;
-  
-	const tokenAccountKeypair = Keypair.generate();
-	const tokenAccount = tokenAccountKeypair.publicKey;
-  
-  
-	/// SECTION 1 Create the Mint and Token Account with all extentions
-  
-	const createMintSignature = await createToken22MintWithDefaultState(
-	  connection,
-	  payer,
-	  mintKeypair,
-	  mintDecimals,
-	)
-  
-	const createTokenAccountSignature = await createTokenAccountWithExtentions(
-	  connection,
-	  mint,
-	  payer,
-	  tokenAccountKeypair
-	)
-  
-	/// SECTION 2 Show how each extention functions by negative cases
-	// show that the rules work for all execpt CPI gaurd
-	{ // Default State ( Show how to unfreeze )
-  
-	  await unfreezeAndMint(
+
+		// First have to thaw the account
+		console.log(owner.publicKey)
+		console.log(mint)
+		const account = await getAccount(
+			connection,
+			destinationTokenAccount,
+			undefined,
+			TOKEN_2022_PROGRAM_ID
+		)
+
+		console.log(account)
+
+		// First have to thaw the account from the owner
+		await thawAccount(
+			connection,
+			payer,
+			destinationTokenAccount,
+			mint,
+			owner,
+			undefined,
+			undefined,
+			TOKEN_2022_PROGRAM_ID
+		  );
+
+		// Now we can transfer
+		const transaction = new Transaction().add(
+			new TransactionInstruction({
+				keys: [{ pubkey: payer.publicKey, isSigner: true, isWritable: true }],
+				data: Buffer.from(message, "utf-8"),
+				programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+			  }),
+			  createTransferInstruction(
+				fromTokenAccount,
+				destinationTokenAccount,
+				payer.publicKey,
+				amount,
+				undefined,
+				TOKEN_2022_PROGRAM_ID
+			  )
+		);
+		await sendAndConfirmTransaction(connection, transaction, [payer]);
+
+		// const account = await getAccount(
+		// 	connection,
+		// 	destinationTokenAccount,
+		// 	undefined,
+		// 	TOKEN_2022_PROGRAM_ID
+		// )
+
+
+		console.log(
+			`✅ - We have transferred ${amount} tokens to ${destinationTokenAccount} with the memo: ${message}`
+		  );
+
+
+	  } catch (error) {
+		console.log(error)
+		console.error(`This should work. ${error}`);
+	  }
+
+}
+	
+
+// -------------- MAIN SCRIPT -------------- //
+
+async function main() {
+  /// SECTION 0 Setup
+  const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+  // const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+  const payer = await initializeKeypair(connection);
+
+  const otherPayer = Keypair.generate();
+  const airdropSignature = await connection.requestAirdrop(otherPayer.publicKey, 1000000000);
+  connection.confirmTransaction(airdropSignature, 'finalized');
+
+  const mintKeypair = Keypair.generate();
+  const mint = mintKeypair.publicKey;
+  const mintDecimals = 9;
+  const defaultAccountState = AccountState.Frozen;
+
+  const ourTokenAccountKeypair = Keypair.generate();
+  const ourTokenAccount = ourTokenAccountKeypair.publicKey;
+
+  const otherTokenAccountKeypair = Keypair.generate();
+  const otherTokenAccount = otherTokenAccountKeypair.publicKey;
+
+  const amountToMint = 1000;
+  const amountToTransfer = 300;
+
+  /// SECTION 1 Create Mint and Token Account
+  const createMintSignature = await createToken22MintWithDefaultState(
+    connection,
+    payer,
+    mintKeypair,
+    mintDecimals,
+    defaultAccountState
+  );
+
+  const createOurTokenAccountSignature = await createTokenAccountWithExtensions(
+    connection,
+    mint,
+    payer,
+    ourTokenAccountKeypair
+  );
+
+  const createOtherTokenAccountSignature = await createTokenAccountWithExtensions(
+    connection,
+    mint,
+	otherPayer,
+    otherTokenAccountKeypair
+  );
+
+  /// SECTION 2 Show how each extension functions by negative cases
+  {
+    // Show you can't mint without unfreezing
+    await testMintWithoutThawing({
 		connection,
 		payer,
-		tokenAccount,
-		mint
-	  )
-	}
-  
-	{ // Cant change owner
-	  await transferOwner(connection, payer, tokenAccountKeypair)
-	}
-  
-	{
-	  // Cannot transfer without memo
-	  transferWithoutMemo(mint, tokenAccount, payer, connection)
-	}
+		tokenAccount: ourTokenAccount,
+		mint,
+		amount: amountToMint
+	});
   }
-  
-  
-  main();
+
+  {
+    // Show how to thaw and mint
+    await testThawAndMint({
+		connection,
+		payer,
+		tokenAccount: ourTokenAccount,
+		mint,
+		amount: amountToMint
+	});
+  }
+
+  {
+    // Show that you can't change owner
+    await testTryingToTransferOwner({
+		connection,
+		payer,
+		tokenAccount: ourTokenAccount,
+		newAuthority: otherPayer.publicKey,
+	});
+  }
+
+  {
+    // Show that you can't transfer without memo
+    await testTryingToTransferWithoutMemo({
+		connection,
+		fromTokenAccount: ourTokenAccount,
+		destinationTokenAccount: otherTokenAccount,
+		payer,
+		amount: amountToTransfer
+	});
+  }
+
+  {
+    // Show transfer with memo 
+    await testTransferringWithMemoWithFrozenAccount({
+		connection,
+		fromTokenAccount: ourTokenAccount,
+		destinationTokenAccount: otherTokenAccount,
+		payer,
+		amount: amountToTransfer,
+		message: "Hello, Solana"
+	});
+  }
+
+  {
+
+	try {
+
+		await thawAccount(
+			connection,
+			otherPayer,
+			otherTokenAccount,
+			mint,
+			otherPayer,
+			undefined,
+			undefined,
+			TOKEN_2022_PROGRAM_ID
+		)
+	} catch (error) {
+		console.log(error)
+	}
+
+
+
+    // Show transfer with memo 
+    // await testTransferringWithMemoWithThawedAccount({
+	// 	connection,
+	// 	fromTokenAccount: ourTokenAccount,
+	// 	destinationTokenAccount: otherTokenAccount,
+	// 	mint,
+	// 	payer,
+	// 	owner: otherTokenHolderKeypair,
+	// 	amount: amountToTransfer,
+	// 	message: "Hello, Solana"
+	// });
+  }
+}
+
+main();
