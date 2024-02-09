@@ -16,6 +16,7 @@ import {
   PublicKey,
   TransactionInstruction,
   SystemProgram,
+  clusterApiUrl,
 } from "@solana/web3.js";
 import { initializeKeypair } from "./keypair-helpers";
 import { createToken22MintWithDefaultState } from "./mint-helpers";
@@ -272,8 +273,8 @@ async function testTransferringWithMemoWithThawedAccount(inputs: TransferWithMem
 
 async function main() {
   /// SECTION 0 Setup
-  const connection = new Connection("http://127.0.0.1:8899", "confirmed");
-  // const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+//   const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+  const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
   const payer = await initializeKeypair(connection);
 
   const otherOwner = Keypair.generate();
