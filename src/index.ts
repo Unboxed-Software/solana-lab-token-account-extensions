@@ -212,25 +212,12 @@ interface TransferWithMemoWithThawedAccountInputs {
 	destinationTokenAccount: PublicKey;
 	mint: PublicKey;
 	payer: Keypair;
-	owner: Keypair;
 	amount: number;
 	message: string;
 }
 async function testTransferringWithMemoWithThawedAccount(inputs: TransferWithMemoWithThawedAccountInputs) {
-	const { fromTokenAccount, destinationTokenAccount, mint, payer, owner, connection, amount, message } = inputs;
+	const { fromTokenAccount, destinationTokenAccount, mint, payer, connection, amount, message } = inputs;
 	try {
-
-		// First have to thaw the account
-		console.log(owner.publicKey)
-		console.log(mint)
-		const account = await getAccount(
-			connection,
-			destinationTokenAccount,
-			undefined,
-			TOKEN_2022_PROGRAM_ID
-		)
-
-		console.log(account)
 
 		// First have to thaw the account from the owner
 		await thawAccount(
@@ -238,7 +225,7 @@ async function testTransferringWithMemoWithThawedAccount(inputs: TransferWithMem
 			payer,
 			destinationTokenAccount,
 			mint,
-			owner,
+			payer,
 			undefined,
 			undefined,
 			TOKEN_2022_PROGRAM_ID
@@ -262,18 +249,16 @@ async function testTransferringWithMemoWithThawedAccount(inputs: TransferWithMem
 		);
 		await sendAndConfirmTransaction(connection, transaction, [payer]);
 
-		// const account = await getAccount(
-		// 	connection,
-		// 	destinationTokenAccount,
-		// 	undefined,
-		// 	TOKEN_2022_PROGRAM_ID
-		// )
-
+		const account = await getAccount(
+			connection,
+			destinationTokenAccount,
+			undefined,
+			TOKEN_2022_PROGRAM_ID
+		)
 
 		console.log(
-			`✅ - We have transferred ${amount} tokens to ${destinationTokenAccount} with the memo: ${message}`
+			`✅ - We have transferred ${account.amount} tokens to ${destinationTokenAccount} with the memo: ${message}`
 		  );
-
 
 	  } catch (error) {
 		console.log(error)
@@ -291,9 +276,7 @@ async function main() {
   // const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
   const payer = await initializeKeypair(connection);
 
-  const otherPayer = Keypair.generate();
-  const airdropSignature = await connection.requestAirdrop(otherPayer.publicKey, 1000000000);
-  connection.confirmTransaction(airdropSignature, 'finalized');
+  const otherOwner = Keypair.generate();
 
   const mintKeypair = Keypair.generate();
   const mint = mintKeypair.publicKey;
@@ -322,13 +305,15 @@ async function main() {
     connection,
     mint,
     payer,
+	payer,
     ourTokenAccountKeypair
   );
 
   const createOtherTokenAccountSignature = await createTokenAccountWithExtensions(
     connection,
     mint,
-	otherPayer,
+	payer,
+	otherOwner,
     otherTokenAccountKeypair
   );
 
@@ -361,7 +346,7 @@ async function main() {
 		connection,
 		payer,
 		tokenAccount: ourTokenAccount,
-		newAuthority: otherPayer.publicKey,
+		newAuthority: otherOwner.publicKey,
 	});
   }
 
@@ -389,37 +374,19 @@ async function main() {
   }
 
   {
-
-	try {
-
-		await thawAccount(
-			connection,
-			otherPayer,
-			otherTokenAccount,
-			mint,
-			otherPayer,
-			undefined,
-			undefined,
-			TOKEN_2022_PROGRAM_ID
-		)
-	} catch (error) {
-		console.log(error)
-	}
-
-
-
     // Show transfer with memo 
-    // await testTransferringWithMemoWithThawedAccount({
-	// 	connection,
-	// 	fromTokenAccount: ourTokenAccount,
-	// 	destinationTokenAccount: otherTokenAccount,
-	// 	mint,
-	// 	payer,
-	// 	owner: otherTokenHolderKeypair,
-	// 	amount: amountToTransfer,
-	// 	message: "Hello, Solana"
-	// });
+    await testTransferringWithMemoWithThawedAccount({
+		connection,
+		fromTokenAccount: ourTokenAccount,
+		destinationTokenAccount: otherTokenAccount,
+		mint,
+		payer,
+		amount: amountToTransfer,
+		message: "Hello, Solana"
+	});
+
   }
+
 }
 
 main();

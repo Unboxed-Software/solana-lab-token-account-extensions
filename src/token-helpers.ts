@@ -5,6 +5,7 @@ export async function createTokenAccountWithExtensions(
     connection: Connection, 
     mint: PublicKey, 
     payer: Keypair, 
+	owner: Keypair,
     tokenAccountKeypair: Keypair
 ): Promise<string> {
 
@@ -36,18 +37,18 @@ export async function createTokenAccountWithExtensions(
 	const initializeRequiredMemoTransfersInstruction =
 	  createEnableRequiredMemoTransfersInstruction(
 		tokenAccount,
-		payer.publicKey, // Could be owner too if you want
+		owner.publicKey,
 		undefined,
 		TOKEN_2022_PROGRAM_ID,
 	  );
   
 	const initializeCpiGuard =
-	  createEnableCpiGuardInstruction(tokenAccount, payer.publicKey, [], TOKEN_2022_PROGRAM_ID)
+	  createEnableCpiGuardInstruction(tokenAccount, owner.publicKey, [], TOKEN_2022_PROGRAM_ID)
   
 	const initializeAccountInstruction = createInitializeAccountInstruction(
 	  tokenAccount,
 	  mint,
-	  payer.publicKey,
+	  owner.publicKey,
 	  TOKEN_2022_PROGRAM_ID,
 	);
   
@@ -67,7 +68,7 @@ export async function createTokenAccountWithExtensions(
 	return await sendAndConfirmTransaction(
 	  connection,
 	  transaction,
-	  [payer, tokenAccountKeypair],
+	  [payer, owner, tokenAccountKeypair],
 	);
   }
   
