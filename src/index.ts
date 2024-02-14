@@ -1,9 +1,27 @@
 import {
+	TOKEN_2022_PROGRAM_ID,
+	getAccount,
+	AccountState,
+	thawAccount,
+	mintTo,
+	setAuthority,
+	AuthorityType,
+	createTransferInstruction,
+  } from "@solana/spl-token";
+  import {
+	sendAndConfirmTransaction,
 	Connection,
 	Keypair,
-} from '@solana/web3.js';
-import { initializeKeypair } from './keypair-helpers';
-require('dotenv').config();
+	Transaction,
+	PublicKey,
+	TransactionInstruction,
+	SystemProgram,
+	clusterApiUrl,
+  } from "@solana/web3.js";
+  import { initializeKeypair } from "./keypair-helpers";
+  import { createToken22MintWithDefaultState } from "./mint-helpers";
+  import { createTokenAccountWithExtensions } from "./token-helpers";
+  require("dotenv").config();
 
 
 async function main() {
