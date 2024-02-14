@@ -7,20 +7,29 @@ require('dotenv').config();
 
 
 async function main() {
-	const connection = new Connection('http://127.0.0.1:8899', 'confirmed');
-	// - Generate keys
+	const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
 	const payer = await initializeKeypair(connection);
-
+  
+	const otherOwner = Keypair.generate();
+  
 	const mintKeypair = Keypair.generate();
 	const mint = mintKeypair.publicKey;
 	const mintDecimals = 9;
+	const defaultAccountState = AccountState.Frozen;
+  
+	const ourTokenAccountKeypair = Keypair.generate();
+	const ourTokenAccount = ourTokenAccountKeypair.publicKey;
+  
+	const otherTokenAccountKeypair = Keypair.generate();
+	const otherTokenAccount = otherTokenAccountKeypair.publicKey;
+  
+	const amountToMint = 1000;
+	const amountToTransfer = 300;
 
-	const tokenAccountKeypair = Keypair.generate();
-	const tokenAccount = tokenAccountKeypair.publicKey;
-
-	console.log("Payer Account Public Key: ", payer.publicKey);
-	console.log("Mint Public Key: ", mint);
-	console.log("Token Account Public Key: ", tokenAccount);
+	console.log("Payer account public key: ", payer.publicKey);
+	console.log("Mint public key: ", mint);
+	console.log("Our token account public key: ", ourTokenAccount);
+	console.log("Other token account public key: ", otherTokenAccount);
 
 	// - Create Mint Account
 	// - Create Token Account
